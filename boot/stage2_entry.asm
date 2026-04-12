@@ -19,6 +19,8 @@ _start:
     mov sp, 0x7C00          ; Stack below at 0x7C00
 
     ; Enable A20 line
+    mov si, msg_stage2_entry_ok
+    call print_string
     call enable_a20
     
     ; Load GDT
@@ -89,6 +91,26 @@ enable_a20:
     ret
 
 ; =============================================================================
+; Helper function: Print null-terminated string in real mode
+; Uses: AX, BX, SI
+; =============================================================================
+print_string:
+    push ax
+    push bx
+.loop:
+    lodsb
+    or al, al
+    jz .done
+    mov ah, 0x0E
+    mov bx, 0x0007
+    int 0x10
+    jmp .loop
+.done:
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
 ; GDT (Global Descriptor Table)
 ; =============================================================================
 align 8
@@ -100,3 +122,10 @@ gdt_start:
 gdt_descriptor:
     dw gdt_descriptor - gdt_start - 1
     dd gdt_start
+
+msg_stage2_entry_ok: db "Stage 2 entry OK", 13, 10, 0
+
+; Pad stage2 entry to a full 512-byte sector so stage2 C code begins at 0x8000.
+; Stage 1 loads stage2.bin starting at 0x7E00, and the C payload must start
+; at 0x8000 to match the protected-mode call.
+    times 512-(($-$$)) db 0

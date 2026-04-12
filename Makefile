@@ -64,11 +64,16 @@ $(BUILD_DIR)/stage2_entry.bin: $(STAGE2_ENTRY_SRC)
 $(BUILD_DIR)/stage2.o: $(STAGE2_SRC)
 	$(CC) $(CFLAGS) -c $< -o $@ -fno-pic -fno-pie
 
-$(BUILD_DIR)/stage2_c.bin: $(BUILD_DIR)/stage2.o
-	$(OBJCOPY) -O binary -j .text -j .data -j .rodata -j .bss $< $@
+STAGE2_LD = stage2.ld
+
+$(BUILD_DIR)/stage2.elf: $(BUILD_DIR)/stage2.o $(STAGE2_LD)
+	$(LD) -m i386pe -T $(STAGE2_LD) -o $@ $<
+
+$(BUILD_DIR)/stage2_c.bin: $(BUILD_DIR)/stage2.elf
+	$(OBJCOPY) -O binary $< $@
 
 $(BUILD_DIR)/stage2.bin: $(BUILD_DIR)/stage2_entry.bin $(BUILD_DIR)/stage2_c.bin
-	cat "$(BUILD_DIR)/stage2_entry.bin" "$(BUILD_DIR)/stage2_c.bin" > "$@"
+	cmd.exe /c copy /b $(BUILD_DIR)\stage2_entry.bin+$(BUILD_DIR)\stage2_c.bin $(BUILD_DIR)\stage2.bin > nul
 
 # =============================================================================
 # Kernel
