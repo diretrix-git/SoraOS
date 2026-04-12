@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+
+# Disk image
+myos.img
+
+# Temporary/compiled output
+*.bin
+*.o
+*.exe
+*.map
+*.lst
+*.img
