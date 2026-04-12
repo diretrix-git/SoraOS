@@ -1,3 +1,8 @@
+# GSD / workspace temporary files
+.claude/
+.planning/
+-p/
+
 # Build artifacts
 build/
 
