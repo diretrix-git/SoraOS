@@ -47,6 +47,8 @@ os/
 
 Download MSYS2 from https://www.msys2.org and install it.
 
+> Important: run `make` from the MSYS2 UCRT64 shell, not from PowerShell or cmd. Using `make` from a non-MSYS shell can create a stray `nul` file and break the build.
+
 ### 2. Install Required Packages
 
 Open the **MSYS2 UCRT64** shell and run:
@@ -89,12 +91,6 @@ qemu-system-i386 -drive format=raw,file=myos.img -m 32M -vga std
 ```bash
 make debug
 ```
-
-## Notes
-
-- `.claude/`, `.planning/`, and `-p/` are kept out of git and removed from the repository.
-- `build/` and `myos.img` are generated artifacts and are not tracked.
-- The project name and repo have been updated to `os`.
 
 ## Shell Commands
 

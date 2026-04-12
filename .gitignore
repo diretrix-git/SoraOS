@@ -9,6 +9,9 @@ build/
 # Disk image
 myos.img
 
+# Windows shell artifact from malformed redirection
+nul
+
 # Temporary/compiled output
 *.bin
 *.o

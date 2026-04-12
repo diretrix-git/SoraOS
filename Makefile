@@ -1,10 +1,12 @@
 # MyOS Makefile
 # Builds a two-stage bootloader and kernel for x86 32-bit
 
+SHELL := C:/msys64/ucrt64/bin/sh.exe
+
 # Toolchain
-CC = gcc.exe
+CC = i686-w64-mingw32-gcc.exe
 LD = ld.exe
-NASM = C:/msys64/ucrt64/bin/nasm.exe
+NASM = /c/msys64/ucrt64/bin/nasm.exe
 OBJCOPY = objcopy.exe
 
 # Directories
@@ -17,8 +19,8 @@ OS_IMAGE = myos.img
 
 # Compiler flags
 CFLAGS = -ffreestanding -fno-stack-protector -nostdlib -nodefaultlibs \
-         -m32 -O2 -Wall -Wextra -I$(KERNEL_DIR)
-LDFLAGS = -m32 -T linker.ld -nostdlib
+         -O2 -Wall -Wextra -I$(KERNEL_DIR)
+LDFLAGS = -T linker.ld -nostdlib
 
 # NASM flags
 NASM_FLAGS = -f bin
@@ -45,7 +47,7 @@ ALL_KERNEL_OBJS = $(KERNEL_OBJS) $(KERNEL_ASM_OBJS)
 all: $(BUILD_DIR) $(OS_IMAGE)
 
 $(BUILD_DIR):
-	mkdir "$(BUILD_DIR)" 2>nul || mkdir -p "$(BUILD_DIR)"
+	mkdir -p "$(BUILD_DIR)"
 
 # =============================================================================
 # Stage 1 Bootloader (MBR)
@@ -63,7 +65,7 @@ $(BUILD_DIR)/stage2.o: $(STAGE2_SRC)
 	$(CC) $(CFLAGS) -c $< -o $@ -fno-pic -fno-pie
 
 $(BUILD_DIR)/stage2_c.bin: $(BUILD_DIR)/stage2.o
-	$(OBJCOPY) -O binary -j .text $< $@
+	$(OBJCOPY) -O binary -j .text -j .data -j .rodata -j .bss $< $@
 
 $(BUILD_DIR)/stage2.bin: $(BUILD_DIR)/stage2_entry.bin $(BUILD_DIR)/stage2_c.bin
 	cat "$(BUILD_DIR)/stage2_entry.bin" "$(BUILD_DIR)/stage2_c.bin" > "$@"
@@ -78,7 +80,7 @@ $(BUILD_DIR)/%.o: $(KERNEL_DIR)/%.asm
 	$(NASM) -f win32 $< -o $@
 
 $(BUILD_DIR)/kernel.bin: $(ALL_KERNEL_OBJS)
-	$(CC) -B C:/msys64/ucrt64/bin/ -fno-use-linker-plugin $(LDFLAGS) $^ -o $(BUILD_DIR)/kernel.exe -Wl,--subsystem=native,-e,_kernel_main
+	$(CC) -fno-use-linker-plugin $(LDFLAGS) $^ -o $(BUILD_DIR)/kernel.exe -Wl,--image-base,0x100000 -Wl,-e,_kernel_main
 	$(OBJCOPY) -O binary $(BUILD_DIR)/kernel.exe $@
 
 # =============================================================================
@@ -110,5 +112,4 @@ debug: $(OS_IMAGE)
 		-d int,cpu_reset -no-reboot -no-shutdown
 
 clean:
-	-rmdir /s /q $(BUILD_DIR) 2>nul || echo "Build directory cleaned"
-	-del /f $(OS_IMAGE) 2>nul || echo "Image deleted"
+	rm -rf $(BUILD_DIR) $(OS_IMAGE)
