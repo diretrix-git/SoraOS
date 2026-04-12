@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Skill(gsd-map-codebase)",
-      "Bash([ -d \".planning/codebase\" ])"
-    ]
-  }
-}
