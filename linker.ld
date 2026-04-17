@@ -1,6 +1,6 @@
 /* Linker script for MyOS kernel */
 
-ENTRY(_kernel_entry)
+ENTRY(kernel_entry)
 
 SECTIONS
 {

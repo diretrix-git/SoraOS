@@ -87,8 +87,8 @@ $(BUILD_DIR)/%.o: $(KERNEL_DIR)/%.asm
 	$(NASM) -f win32 $< -o $@
 
 $(BUILD_DIR)/kernel.bin: $(ALL_KERNEL_OBJS)
-	$(CC) -m32 -fno-use-linker-plugin $(LDFLAGS) $^ -o $(BUILD_DIR)/kernel.exe -Wl,--image-base,0x100000
-	$(OBJCOPY) -O binary $(BUILD_DIR)/kernel.exe $@
+	$(LD) -m i386pe -Ttext=0x100000 -T linker.ld -o $(BUILD_DIR)/kernel.elf $^
+	$(OBJCOPY) -O binary $(BUILD_DIR)/kernel.elf $@
 
 # =============================================================================
 # Create disk image

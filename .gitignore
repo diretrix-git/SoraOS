@@ -20,3 +20,9 @@ nul
 *.map
 *.lst
 *.img
+
+# QEMU and debug logs
+qemu-debug.log
+qemu-kernel.log
+qemu-reset.log
+serial.log

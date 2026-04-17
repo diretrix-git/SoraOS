@@ -2,6 +2,11 @@
 #include "pmm.h"
 #include "vga.h"
 
+static inline void outb(uint16_t port, uint8_t value)
+{
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
 static struct page_directory *current_directory = 0;
 
 static inline void invlpg(uint32_t addr)
@@ -31,30 +36,8 @@ static inline void set_cr3(uint32_t addr)
 
 void paging_init(void)
 {
-    /* Allocate page directory */
-    uint32_t pd_addr = pmm_alloc_frame();
-    current_directory = (struct page_directory *)pd_addr;
-
-    /* Zero out page directory */
-    for (int i = 0; i < 1024; i++)
-    {
-        current_directory->tables[i] = 0;
-        current_directory->tables_physical[i] = 0;
-    }
-
-    /* Identity map first 4MB for kernel */
-    for (uint32_t addr = 0; addr < 0x400000; addr += PAGE_SIZE)
-    {
-        map_page(addr, addr, PAGE_PRESENT | PAGE_WRITE);
-    }
-
-    /* Load CR3 with page directory physical address */
-    set_cr3(pd_addr);
-
-    /* Enable paging */
-    enable_paging();
-
-    flush_tlb();
+    /* Debug: skip paging for now */
+    return;
 }
 
 void map_page(uint32_t virtual_addr, uint32_t physical_addr, uint32_t flags)

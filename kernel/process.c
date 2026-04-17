@@ -1,12 +1,20 @@
 #include "process.h"
 #include "pmm.h"
 
+static inline void outb(uint16_t port, uint8_t value)
+{
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+#define SERIAL_PORT 0x3F8
+
 static struct process process_table[MAX_PROCESSES];
 static uint32_t next_pid = 1;
 static struct process *current_process = 0;
 
 struct process *process_create(const char *name, void (*entry)())
 {
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '1'); outb(SERIAL_PORT, '\n');
     /* Find free slot */
     struct process *proc = 0;
     for (int i = 0; i < MAX_PROCESSES; i++)
@@ -17,18 +25,22 @@ struct process *process_create(const char *name, void (*entry)())
             break;
         }
     }
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '2'); outb(SERIAL_PORT, '\n');
 
     if (!proc)
     {
         return 0; /* No free slots */
     }
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '3'); outb(SERIAL_PORT, '\n');
 
     /* Allocate stack */
     uint32_t stack = pmm_alloc_frame();
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '4'); outb(SERIAL_PORT, '\n');
     if (!stack)
     {
         return 0;
     }
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '5'); outb(SERIAL_PORT, '\n');
 
     /* Initialize process */
     proc->pid = next_pid++;
@@ -42,21 +54,35 @@ struct process *process_create(const char *name, void (*entry)())
         proc->name[i] = name[i];
     }
     proc->name[31] = 0;
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '6'); outb(SERIAL_PORT, '\n');
 
     /* Set up initial CPU context */
     /* This context will be restored by scheduler on first switch */
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '1'); outb(SERIAL_PORT, '\n');
     proc->context.eax = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '2'); outb(SERIAL_PORT, '\n');
     proc->context.ebx = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '3'); outb(SERIAL_PORT, '\n');
     proc->context.ecx = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '4'); outb(SERIAL_PORT, '\n');
     proc->context.edx = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '5'); outb(SERIAL_PORT, '\n');
     proc->context.esi = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '6'); outb(SERIAL_PORT, '\n');
     proc->context.edi = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '7'); outb(SERIAL_PORT, '\n');
     proc->context.ebp = 0;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '8'); outb(SERIAL_PORT, '\n');
     proc->context.esp = proc->stack_top;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, '9'); outb(SERIAL_PORT, '\n');
     proc->context.eip = (uint32_t)entry;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, 'A'); outb(SERIAL_PORT, '\n');
     proc->context.eflags = 0x202; /* Interrupts enabled */
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, 'B'); outb(SERIAL_PORT, '\n');
     proc->context.cs = 0x08;
+    outb(SERIAL_PORT, 'X'); outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '\n');
     proc->context.ds = 0x10;
+    outb(SERIAL_PORT, 'C'); outb(SERIAL_PORT, '7'); outb(SERIAL_PORT, '\n');
 
     return proc;
 }

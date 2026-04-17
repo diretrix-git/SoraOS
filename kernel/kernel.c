@@ -3,6 +3,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "pic.h"
+#include "ps2.h"
 #include "timer.h"
 #include "keyboard.h"
 #include "pmm.h"
@@ -81,7 +82,7 @@ void thread2_entry(void)
     }
 }
 
-void kernel_entry(void) __attribute__((section(".text.startup")));
+void kernel_entry(void) __attribute__((section(".text.startup"), used));
 
 void kernel_entry(void)
 {
@@ -116,6 +117,11 @@ void kernel_main(void)
     serial_print("PIC initialized\n");
     vga_print("PIC initialized\n");
 
+    serial_print("PS/2 Controller init...\n");
+    ps2_controller_init();
+    serial_print("PS/2 Controller ready\n");
+    vga_print("PS/2 Controller ready\n");
+
     serial_print("Timer init...\n");
     timer_init(100);
     serial_print("Timer started (100Hz)\n");
@@ -132,14 +138,20 @@ void kernel_main(void)
     vga_print("PMM ready: ");
     vga_print_int(pmm_free_frames());
     vga_print(" frames free\n");
-
+    
+    serial_print("Paging init...\n");
     paging_init();
+    serial_print("Paging enabled\n");
     vga_print("Paging enabled\n");
 
+    serial_print("Scheduler init...\n");
     scheduler_init();
+    serial_print("Scheduler ready\n");
     vga_print("Scheduler ready\n");
 
+    serial_print("Enabling interrupts...\n");
     __asm__ volatile("sti");
+    serial_print("Interrupts enabled\n");
     vga_print("Interrupts enabled\n");
 
     vga_print("Creating demo threads...\n");
