@@ -14,41 +14,37 @@
 
 void kernel_main(void);
 
+/* BSS boundaries provided by linker.ld */
+extern uint8_t _bss_start[];
+extern uint8_t _bss_end[];
+
+/* ------------------------------------------------------------------ */
+/* Serial helpers (used before VGA is up)                             */
+/* ------------------------------------------------------------------ */
 static inline void outb(uint16_t port, uint8_t value)
 {
     __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
 }
-
 static inline uint8_t inb(uint16_t port)
 {
-    uint8_t result;
-    __asm__ volatile("inb %1, %0" : "=a"(result) : "Nd"(port));
-    return result;
+    uint8_t r;
+    __asm__ volatile("inb %1, %0" : "=a"(r) : "Nd"(port));
+    return r;
 }
-
-static inline int serial_is_transmit_empty(void)
-{
-    return inb(0x3F8 + 5) & 0x20;
-}
-
+static inline int serial_tx_empty(void)  { return inb(0x3F8 + 5) & 0x20; }
 static void serial_putchar(char c)
 {
-    while (!serial_is_transmit_empty())
-        ;
+    while (!serial_tx_empty()) ;
     outb(0x3F8, (uint8_t)c);
 }
-
-static void serial_print(const char *str)
+static void serial_print(const char *s)
 {
-    while (*str)
-    {
-        char c = *str++;
-        if (c == '\n')
-            serial_putchar('\r');
-        serial_putchar(c);
-    }
+    while (*s) { if (*s == '\n') serial_putchar('\r'); serial_putchar(*s++); }
 }
 
+/* ------------------------------------------------------------------ */
+/* Demo threads                                                        */
+/* ------------------------------------------------------------------ */
 static volatile int thread1_ticks = 0;
 static volatile int thread2_ticks = 0;
 
@@ -59,7 +55,7 @@ void thread1_entry(void)
         thread1_ticks++;
         if (thread1_ticks % 100 == 0)
         {
-            vga_print("[Thread1] Running... ticks=");
+            vga_print("[Thread1] ticks=");
             vga_print_int(thread1_ticks);
             vga_print("\n");
         }
@@ -74,7 +70,7 @@ void thread2_entry(void)
         thread2_ticks++;
         if (thread2_ticks % 150 == 0)
         {
-            vga_print("[Thread2] Running... ticks=");
+            vga_print("[Thread2] ticks=");
             vga_print_int(thread2_ticks);
             vga_print("\n");
         }
@@ -82,103 +78,88 @@ void thread2_entry(void)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* Kernel entry point — called by stage2, runs before kernel_main     */
+/* ------------------------------------------------------------------ */
 void kernel_entry(void) __attribute__((section(".text.startup"), used));
 
 void kernel_entry(void)
 {
+    /* Zero the BSS segment BEFORE any C code uses static/global variables */
+    for (uint8_t *p = _bss_start; p < _bss_end; p++)
+        *p = 0;
+
     kernel_main();
+
+    /* Should never return */
     while (1)
-    {
         __asm__ volatile("hlt");
-    }
 }
 
+/* ------------------------------------------------------------------ */
+/* Main kernel initialisation                                          */
+/* ------------------------------------------------------------------ */
 void kernel_main(void)
 {
     vga_init();
     serial_print("Kernel entry OK\n");
     vga_print("Kernel entry OK\n");
-    serial_print("Booting MyOS...\n");
     vga_print("Booting MyOS...\n");
 
-    serial_print("GDT init...\n");
-    /* Skip kernel GDT reload for now; stage2 already set a flat protected-mode GDT. */
-    /* gdt_init(); */
-    serial_print("GDT loaded\n");
+    /* GDT — stage2 already set a flat GDT; skip reload for now */
     vga_print("GDT loaded\n");
 
     serial_print("IDT init...\n");
     idt_init();
-    serial_print("IDT loaded\n");
     vga_print("IDT loaded\n");
 
     serial_print("PIC init...\n");
     pic_init();
-    serial_print("PIC initialized\n");
     vga_print("PIC initialized\n");
 
-    serial_print("PS/2 Controller init...\n");
+    serial_print("PS/2 init...\n");
     ps2_controller_init();
-    serial_print("PS/2 Controller ready\n");
     vga_print("PS/2 Controller ready\n");
 
     serial_print("Timer init...\n");
     timer_init(100);
-    serial_print("Timer started (100Hz)\n");
     vga_print("Timer started (100Hz)\n");
 
     serial_print("Keyboard init...\n");
     keyboard_init();
-    serial_print("Keyboard ready\n");
     vga_print("Keyboard ready\n");
 
     serial_print("PMM init...\n");
     pmm_init(32 * 1024 * 1024);
-    serial_print("PMM ready\n");
     vga_print("PMM ready: ");
     vga_print_int(pmm_free_frames());
     vga_print(" frames free\n");
-    
+
     serial_print("Paging init...\n");
     paging_init();
-    serial_print("Paging enabled\n");
     vga_print("Paging enabled\n");
 
     serial_print("Scheduler init...\n");
-    vga_print("Scheduler init...\n");
     scheduler_init();
-    serial_print("Scheduler ready\n");
     vga_print("Scheduler ready\n");
-    serial_print("After scheduler\n");
-    vga_print("After scheduler\n");
 
     serial_print("Enabling interrupts...\n");
     __asm__ volatile("sti");
-    serial_print("Interrupts enabled\n");
     vga_print("Interrupts enabled\n");
 
+    /* Create demo threads */
     vga_print("Creating demo threads...\n");
-    serial_print("Creating demo threads...\n");
     struct process *t1 = process_create("Thread1", thread1_entry);
     struct process *t2 = process_create("Thread2", thread2_entry);
-
-    if (t1) {
-        scheduler_add(t1);
-        serial_print("Thread1 added\n");
-    }
-    if (t2) {
-        scheduler_add(t2);
-        serial_print("Thread2 added\n");
-    }
+    if (t1) { scheduler_add(t1); vga_print("Thread1 added\n"); }
+    if (t2) { scheduler_add(t2); vga_print("Thread2 added\n"); }
 
     vga_print("\n");
-    serial_print("Starting shell...\n");
 
+    /* Start the interactive shell */
     shell_init();
     shell_run();
 
     while (1)
-    {
         __asm__ volatile("hlt");
-    }
 }

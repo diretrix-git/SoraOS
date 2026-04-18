@@ -8,29 +8,30 @@ SECTIONS
     . = 0x100000;
     
     /* Code section */
-    .text : ALIGN(4K)
+    .text :
     {
         *(.text.startup)
         *(.text*)
     }
     
     /* Read-only data */
-    .rodata : ALIGN(4K)
+    .rodata :
     {
         *(.rodata*)
     }
     
     /* Initialized data */
-    .data : ALIGN(4K)
+    .data :
     {
         *(.data*)
     }
     
     /* Uninitialized data (BSS) */
-    .bss : ALIGN(4K)
-    {
+    .bss : {
+        _bss_start = .;
         *(COMMON)
         *(.bss*)
+        _bss_end = .;
     }
     
     /* Discard unwanted sections */

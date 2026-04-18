@@ -1,4 +1,5 @@
 #include "scheduler.h"
+#include "process.h"
 #include "vga.h"
 
 static inline void outb(uint16_t port, uint8_t value)
@@ -13,88 +14,80 @@ static inline uint8_t inb(uint16_t port)
     return result;
 }
 
-static inline int serial_is_transmit_empty(void)
+static inline int serial_transmit_empty(void)
 {
     return inb(0x3F8 + 5) & 0x20;
 }
 
 static void serial_putchar(char c)
 {
-    while (!serial_is_transmit_empty())
+    while (!serial_transmit_empty())
         ;
     outb(0x3F8, (uint8_t)c);
 }
 
-static void serial_print(const char *str)
+static void serial_print(const char *s)
 {
-    while (*str)
+    while (*s)
     {
-        char c = *str++;
-        if (c == '\n')
-            serial_putchar('\r');
-        serial_putchar(c);
+        if (*s == '\n') serial_putchar('\r');
+        serial_putchar(*s++);
     }
 }
 
-#define MAX_PROCESSES 16
+/* ------------------------------------------------------------------ */
 
-static struct process *process_queue[MAX_PROCESSES];
-static int process_count = 0;
-static int current_index = 0;
+#define MAX_PROCS 16
+
+static struct process *queue[MAX_PROCS];
+static int  count   = 0;
+static int  cur_idx = 0;
 static struct process *current_process = 0;
+
+/* ------------------------------------------------------------------ */
 
 void scheduler_init(void)
 {
     serial_print("[SCHED] Init\n");
-    process_count = 0;
-    current_index = 0;
+    count   = 0;
+    cur_idx = 0;
     current_process = 0;
-    process_queue[0] = 0;
-    process_queue[1] = 0;
-    process_queue[2] = 0;
-    process_queue[3] = 0;
-    process_queue[4] = 0;
-    process_queue[5] = 0;
-    process_queue[6] = 0;
-    process_queue[7] = 0;
-    process_queue[8] = 0;
-    process_queue[9] = 0;
-    process_queue[10] = 0;
-    process_queue[11] = 0;
-    process_queue[12] = 0;
-    process_queue[13] = 0;
-    process_queue[14] = 0;
-    process_queue[15] = 0;
+    for (int i = 0; i < MAX_PROCS; i++)
+        queue[i] = 0;
     serial_print("[SCHED] Done\n");
 }
 
 void scheduler_add(struct process *proc)
 {
-    if (process_count >= MAX_PROCESSES)
-    {
+    if (count >= MAX_PROCS)
         return;
-    }
-
-    process_queue[process_count++] = proc;
-    serial_print("[SCHED] Added process ");
+    queue[count++] = proc;
+    serial_print("[SCHED] Added process\n");
 }
 
+/* Called from the timer IRQ — picks the next READY process */
 void scheduler_tick(void)
 {
-    if (process_count == 0)
-    {
+    if (count == 0)
         return;
-    }
 
-    current_index = (current_index + 1) % process_count;
-    struct process *next_proc = process_queue[current_index];
-
-    if (next_proc == current_process || next_proc->state != PROCESS_READY)
+    /* Find next READY process (skip current) */
+    int start = cur_idx;
+    for (int i = 1; i <= count; i++)
     {
-        return;
+        int idx = (start + i) % count;
+        struct process *p = queue[idx];
+        if (p && p != current_process && p->state == PROCESS_READY)
+        {
+            cur_idx = idx;
+            /* Demote current before switching */
+            if (current_process && current_process->state == PROCESS_RUNNING)
+                current_process->state = PROCESS_READY;
+            p->state = PROCESS_RUNNING;
+            scheduler_switch(p);
+            return;
+        }
     }
-
-    scheduler_switch(next_proc);
 }
 
 struct process *scheduler_get_current(void)
@@ -102,22 +95,43 @@ struct process *scheduler_get_current(void)
     return current_process;
 }
 
+/* ------------------------------------------------------------------ *
+ * scheduler_switch                                                    *
+ *                                                                     *
+ * IMPORTANT: update current_process BEFORE calling switch_context.   *
+ * After switch_context returns we are running in the new process's   *
+ * context, so any writes that happen after the call belong to the    *
+ * resumed process, not to the one we just switched away from.        *
+ * ------------------------------------------------------------------ */
 void scheduler_switch(struct process *proc)
 {
+    if (!proc)
+        return;
+
+    /* First-ever switch: no old context to save */
     if (!current_process)
     {
         current_process = proc;
         process_set_current(proc);
+        /* Jump directly into the new process via a "fake" switch.
+         * We pass a dummy old context — it will never be restored. */
+        struct cpu_context dummy = {0};
+        switch_context(&dummy, &proc->context);
         return;
     }
 
     if (current_process == proc)
-    {
         return;
-    }
 
-    switch_context(&current_process->context, &proc->context);
-
+    /* Update the pointer BEFORE the switch so both sides see it correctly */
+    struct process *old = current_process;
     current_process = proc;
     process_set_current(proc);
+
+    switch_context(&old->context, &proc->context);
+    /*
+     * Execution resumes here the next time `old` is switched back in.
+     * At that point current_process already points to `old` again
+     * (set by whichever call path resumed us), so nothing extra needed.
+     */
 }
