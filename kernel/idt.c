@@ -6,19 +6,41 @@
 
 #define IDT_ENTRIES 256
 
+/* Human-readable exception names for the panic screen */
 static const char *exception_messages[] = {
-    "Division By Zero", "Debug", "Non Maskable Interrupt", "Breakpoint",
-    "Overflow", "Bound Range Exceeded", "Invalid Opcode", "Device Not Available",
-    "Double Fault", "Coprocessor Segment Overrun", "Invalid TSS", "Segment Not Present",
-    "Stack Fault", "General Protection Fault", "Page Fault", "Reserved",
-    "x87 FPU Error", "Alignment Check", "Machine Check", "SIMD FPU Exception",
-    "Virtualization Exception", "Control Protection Exception", "Reserved", "Reserved",
-    "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved",
-    "Security Exception", "Reserved"};
+    "Division By Zero",             /*  0 */
+    "Debug",                        /*  1 */
+    "Non Maskable Interrupt",       /*  2 */
+    "Breakpoint",                   /*  3 */
+    "Overflow",                     /*  4 */
+    "Bound Range Exceeded",         /*  5 */
+    "Invalid Opcode",               /*  6 */
+    "Device Not Available",         /*  7 */
+    "Double Fault",                 /*  8 */
+    "Coprocessor Segment Overrun",  /*  9 */
+    "Invalid TSS",                  /* 10 */
+    "Segment Not Present",          /* 11 */
+    "Stack Fault",                  /* 12 */
+    "General Protection Fault",     /* 13 */
+    "Page Fault",                   /* 14 */
+    "Reserved",                     /* 15 */
+    "x87 FPU Error",                /* 16 */
+    "Alignment Check",              /* 17 */
+    "Machine Check",                /* 18 */
+    "SIMD FPU Exception",           /* 19 */
+    "Virtualization Exception",     /* 20 */
+    "Control Protection Exception", /* 21 */
+    "Reserved", "Reserved", "Reserved", "Reserved",
+    "Reserved", "Reserved", "Reserved", "Reserved",
+    "Security Exception", /* 30 */
+    "Reserved"            /* 31 */
+};
 
+/* ------------------------------------------------------------------ */
 static struct idt_entry idt[IDT_ENTRIES];
 static struct idt_ptr idtp;
 
+/* ISR stubs declared in isr.asm */
 extern void isr0();
 extern void isr1();
 extern void isr2();
@@ -69,7 +91,9 @@ extern void irq13();
 extern void irq14();
 extern void irq15();
 
-static void idt_set_gate(uint8_t num, uint32_t base, uint16_t selector, uint8_t flags)
+/* ------------------------------------------------------------------ */
+static void idt_set_gate(uint8_t num, uint32_t base,
+                         uint16_t selector, uint8_t flags)
 {
     idt[num].base_low = base & 0xFFFF;
     idt[num].base_high = (base >> 16) & 0xFFFF;
@@ -78,16 +102,17 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t selector, uint8_t 
     idt[num].flags = flags;
 }
 
+/* ------------------------------------------------------------------ */
 void idt_init(void)
 {
     idtp.limit = sizeof(idt) - 1;
     idtp.base = (uint32_t)&idt;
 
+    /* Clear all entries first */
     for (int i = 0; i < IDT_ENTRIES; i++)
-    {
         idt_set_gate(i, 0, 0, 0);
-    }
 
+    /* CPU exception handlers (vectors 0–31) */
     idt_set_gate(0, (uint32_t)isr0, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
     idt_set_gate(1, (uint32_t)isr1, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
     idt_set_gate(2, (uint32_t)isr2, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
@@ -121,6 +146,7 @@ void idt_init(void)
     idt_set_gate(30, (uint32_t)isr30, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
     idt_set_gate(31, (uint32_t)isr31, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
 
+    /* Hardware IRQ handlers (vectors 32–47) */
     idt_set_gate(32, (uint32_t)irq0, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
     idt_set_gate(33, (uint32_t)irq1, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
     idt_set_gate(34, (uint32_t)irq2, 0x08, IDT_FLAG_PRESENT | IDT_FLAG_RING0 | IDT_FLAG_INT_GATE);
@@ -141,6 +167,9 @@ void idt_init(void)
     __asm__ volatile("lidt %0" : : "m"(idtp));
 }
 
+/* ------------------------------------------------------------------ */
+/* Full CPU state pushed by the ISR stubs (isr.asm)                   */
+/* ------------------------------------------------------------------ */
 struct registers
 {
     uint32_t ds;
@@ -149,44 +178,75 @@ struct registers
     uint32_t eip, cs, eflags, useresp, ss;
 } __attribute__((packed));
 
+/* ------------------------------------------------------------------ */
+/* Exception handler — print panic screen and halt                    */
+/* ------------------------------------------------------------------ */
 void isr_handler(struct registers *r)
 {
-    vga_print("\n!!! CPU EXCEPTION !!!\n");
-    vga_print("Exception: ");
+    vga_set_color(VGA_WHITE, VGA_RED);
+    vga_print("\n !!! KERNEL PANIC !!! \n");
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
+    vga_print("Exception #");
+    vga_print_int((int32_t)r->int_no);
+    vga_print(": ");
     if (r->int_no < 32)
-    {
         vga_print(exception_messages[r->int_no]);
-    }
     else
-    {
-        vga_print("Unknown (");
-        vga_print_int(r->int_no);
-        vga_print(")");
-    }
+        vga_print("Unknown");
 
-    vga_print("\nError code: 0x");
-    vga_print_hex(r->err_code);
-    vga_print("\nEIP: 0x");
+    vga_print("\nEIP=0x");
     vga_print_hex(r->eip);
-    vga_print("\n");
+    vga_print("  CS=0x");
+    vga_print_hex(r->cs);
+    vga_print("  ERR=0x");
+    vga_print_hex(r->err_code);
+    vga_print("\nEAX=0x");
+    vga_print_hex(r->eax);
+    vga_print("  EBX=0x");
+    vga_print_hex(r->ebx);
+    vga_print("  ECX=0x");
+    vga_print_hex(r->ecx);
+    vga_print("  EDX=0x");
+    vga_print_hex(r->edx);
+    vga_print("\nESP=0x");
+    vga_print_hex(r->esp);
+    vga_print("  EBP=0x");
+    vga_print_hex(r->ebp);
+    vga_print("\nSystem halted.\n");
 
+    __asm__ volatile("cli");
     while (1)
-    {
         __asm__ volatile("hlt");
-    }
 }
+
+/* ------------------------------------------------------------------ */
+/*
+ * IRQ handler — timer and keyboard.
+ *
+ * Timer tick divider: we run the PIT at 100 Hz but only call
+ * scheduler_tick() every TICK_DIVISOR ticks, giving each process a
+ * 100 ms time-slice.  This keeps the shell responsive — a single
+ * keystroke won't be interrupted mid-execution.
+ */
+#define TICK_DIVISOR 10 /* 100 Hz / 10 = 10 Hz preemption = 100 ms slice */
 
 void irq_handler(struct registers *r)
 {
     if (r->int_no == 32)
-    {
-        timer_handler();
-        scheduler_tick();
+    {                    /* IRQ 0 — PIT timer */
+        timer_handler(); /* increments tick counter, sends EOI */
+
+        static uint32_t div = 0;
+        if (++div >= TICK_DIVISOR)
+        {
+            div = 0;
+            scheduler_tick(); /* preemptive round-robin switch */
+        }
     }
 
     if (r->int_no == 33)
-    {
-        keyboard_handler();
+    {                       /* IRQ 1 — PS/2 keyboard */
+        keyboard_handler(); /* reads scancode, pushes to buffer */
     }
 }

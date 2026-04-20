@@ -1,110 +1,212 @@
 #include "heap.h"
-#include "pmm.h"
 
 /*
- * Very simple first-fit free-list allocator.
- * Each allocation is prefixed by a header.
- * Pages are grabbed from the PMM on demand.
+ * First-fit free-list heap allocator.
+ *
+ * Layout in memory:
+ *   [block_header_t | payload bytes] [block_header_t | payload bytes] ...
+ *
+ * The heap region starts at HEAP_START (2 MB) and can grow up to HEAP_MAX
+ * (8 MB).  Because paging identity-maps 0–16 MB, virtual == physical here.
+ *
+ * No locks: single-threaded kernel, interrupts don't call kmalloc.
  */
 
-#define HEAP_MAGIC  0xDEADBEEF
-#define HEAP_START  0x200000   /* 2 MB — above kernel */
-#define HEAP_MAX    0x800000   /* grow up to 8 MB */
+#define HEAP_MAGIC 0xC0FFEEUL
+#define HEAP_START 0x200000UL  /* 2 MB  — above kernel image */
+#define HEAP_MAX 0x800000UL    /* 8 MB  — upper limit        */
+#define HEAP_INITIAL 0x10000UL /* 64 KB initially committed  */
 
-typedef struct block_header {
-    uint32_t magic;
-    uint32_t size;      /* payload size (not including header) */
-    uint8_t  free;
-    struct block_header *next;
-} block_header_t;
-
-static block_header_t *heap_head = 0;
-static uint32_t heap_top = HEAP_START; /* next unmapped byte */
-
-static void heap_expand(uint32_t bytes)
+typedef struct block_hdr
 {
-    /* Round up to page boundary */
-    uint32_t pages = (bytes + 4095) / 4096;
-    for (uint32_t i = 0; i < pages && heap_top < HEAP_MAX; i++) {
-        heap_top += 4096;
+    uint32_t magic; /* sanity sentinel                  */
+    uint32_t size;  /* payload size (NOT inc. header)   */
+    uint8_t free;   /* 1 = available, 0 = allocated     */
+    uint8_t _pad[3];
+    struct block_hdr *next; /* next block in list (or NULL)     */
+} block_hdr_t;
+
+/* Current high-water mark of committed heap space */
+static uint32_t heap_top = 0;
+static block_hdr_t *heap_head = 0;
+
+/* ------------------------------------------------------------------ */
+/* Internal: extend the heap by at least `bytes` bytes.               */
+/* ------------------------------------------------------------------ */
+static void heap_extend(uint32_t bytes)
+{
+    /* Round up to 4 KB page boundary */
+    uint32_t pages = (bytes + 4095u) / 4096u;
+    uint32_t add = pages * 4096u;
+
+    if (heap_top + add > HEAP_MAX)
+        add = HEAP_MAX - heap_top; /* clamp */
+
+    if (add == 0)
+        return;
+
+    /* The memory already exists (identity-mapped by paging_init).
+     * We just advance our water-mark and let the last block absorb it. */
+    heap_top += add;
+
+    /* Grow the last free block, or append a new free block */
+    block_hdr_t *cur = heap_head;
+    block_hdr_t *last = 0;
+    while (cur)
+    {
+        last = cur;
+        cur = cur->next;
+    }
+
+    if (last && last->free)
+    {
+        last->size += add;
+    }
+    else
+    {
+        /* Append new block right after 'last' payload */
+        block_hdr_t *nb;
+        if (last)
+            nb = (block_hdr_t *)((uint8_t *)last + sizeof(block_hdr_t) + last->size);
+        else
+            nb = (block_hdr_t *)HEAP_START;
+
+        nb->magic = HEAP_MAGIC;
+        nb->size = add - sizeof(block_hdr_t);
+        nb->free = 1;
+        nb->next = 0;
+        if (last)
+            last->next = nb;
+        else
+            heap_head = nb;
     }
 }
 
+/* ------------------------------------------------------------------ */
 void heap_init(void)
 {
-    /* Pre-map 64 KB to start */
-    heap_expand(65536);
-    heap_head = (block_header_t *)HEAP_START;
-    heap_head->magic = HEAP_MAGIC;
-    heap_head->size  = heap_top - HEAP_START - sizeof(block_header_t);
-    heap_head->free  = 1;
-    heap_head->next  = 0;
+    heap_top = HEAP_START;
+    heap_head = 0;
+    heap_extend(HEAP_INITIAL);
 }
 
+/* ------------------------------------------------------------------ */
 void *kmalloc(uint32_t size)
 {
-    if (size == 0) return 0;
-    /* Align to 8 bytes */
-    size = (size + 7) & ~7u;
+    return kmalloc_aligned(size, 8);
+}
 
-    block_header_t *cur = heap_head;
-    while (cur) {
-        if (cur->free && cur->size >= size) {
-            /* Split block if enough room */
-            if (cur->size >= size + sizeof(block_header_t) + 8) {
-                block_header_t *split = (block_header_t *)((uint8_t *)cur + sizeof(block_header_t) + size);
+/* ------------------------------------------------------------------ */
+void *kmalloc_aligned(uint32_t size, uint32_t align)
+{
+    if (size == 0)
+        return 0;
+
+    /* Round up size to alignment */
+    if (align < 8)
+        align = 8;
+    size = (size + align - 1u) & ~(align - 1u);
+
+    /* First-fit search */
+    block_hdr_t *cur = heap_head;
+    while (cur)
+    {
+        if (cur->free && cur->size >= size)
+        {
+            /* Split if the leftover is large enough to be its own block */
+            uint32_t leftover = cur->size - size;
+            if (leftover > sizeof(block_hdr_t) + align)
+            {
+                block_hdr_t *split = (block_hdr_t *)((uint8_t *)cur + sizeof(block_hdr_t) + size);
                 split->magic = HEAP_MAGIC;
-                split->size  = cur->size - size - sizeof(block_header_t);
-                split->free  = 1;
-                split->next  = cur->next;
-                cur->next    = split;
-                cur->size    = size;
+                split->size = leftover - sizeof(block_hdr_t);
+                split->free = 1;
+                split->next = cur->next;
+                cur->next = split;
+                cur->size = size;
             }
             cur->free = 0;
-            return (void *)((uint8_t *)cur + sizeof(block_header_t));
+            return (void *)((uint8_t *)cur + sizeof(block_hdr_t));
         }
         cur = cur->next;
     }
 
-    /* Need more space */
-    heap_expand(size + sizeof(block_header_t));
-    /* Extend last block or add new one — simple: try again with a fresh tail */
-    block_header_t *tail = heap_head;
-    while (tail->next) tail = tail->next;
-    if (tail->free) {
-        tail->size = heap_top - (uint32_t)((uint8_t *)tail + sizeof(block_header_t));
-        return kmalloc(size); /* retry */
+    /* Need more space — extend and retry once */
+    uint32_t need = size + sizeof(block_hdr_t);
+    if (need < 4096u)
+        need = 4096u;
+    heap_extend(need);
+
+    cur = heap_head;
+    while (cur)
+    {
+        if (cur->free && cur->size >= size)
+        {
+            uint32_t leftover = cur->size - size;
+            if (leftover > sizeof(block_hdr_t) + align)
+            {
+                block_hdr_t *split = (block_hdr_t *)((uint8_t *)cur + sizeof(block_hdr_t) + size);
+                split->magic = HEAP_MAGIC;
+                split->size = leftover - sizeof(block_hdr_t);
+                split->free = 1;
+                split->next = cur->next;
+                cur->next = split;
+                cur->size = size;
+            }
+            cur->free = 0;
+            return (void *)((uint8_t *)cur + sizeof(block_hdr_t));
+        }
+        cur = cur->next;
     }
-    /* Append new block */
-    block_header_t *nb = (block_header_t *)((uint8_t *)tail + sizeof(block_header_t) + tail->size);
-    nb->magic = HEAP_MAGIC;
-    nb->size  = heap_top - (uint32_t)((uint8_t *)nb + sizeof(block_header_t));
-    nb->free  = 1;
-    nb->next  = 0;
-    tail->next = nb;
-    return kmalloc(size);
+
+    return 0; /* out of memory */
 }
 
+/* ------------------------------------------------------------------ */
 void kfree(void *ptr)
 {
-    if (!ptr) return;
-    block_header_t *hdr = (block_header_t *)((uint8_t *)ptr - sizeof(block_header_t));
-    if (hdr->magic != HEAP_MAGIC) return;
+    if (!ptr)
+        return;
+
+    block_hdr_t *hdr = (block_hdr_t *)((uint8_t *)ptr - sizeof(block_hdr_t));
+    if (hdr->magic != HEAP_MAGIC)
+        return; /* corrupt / double-free */
+    if (hdr->free)
+        return; /* already free          */
+
     hdr->free = 1;
-    /* Coalesce forward */
-    while (hdr->next && hdr->next->free) {
-        hdr->size += sizeof(block_header_t) + hdr->next->size;
-        hdr->next  = hdr->next->next;
+
+    /* Coalesce with consecutive free blocks */
+    while (hdr->next && hdr->next->free)
+    {
+        hdr->size += sizeof(block_hdr_t) + hdr->next->size;
+        hdr->next = hdr->next->next;
     }
 }
 
+/* ------------------------------------------------------------------ */
 uint32_t heap_used(void)
 {
     uint32_t used = 0;
-    block_header_t *cur = heap_head;
-    while (cur) {
-        if (!cur->free) used += cur->size;
+    block_hdr_t *cur = heap_head;
+    while (cur)
+    {
+        if (!cur->free)
+            used += cur->size;
         cur = cur->next;
     }
     return used;
+}
+
+uint32_t heap_free(void)
+{
+    uint32_t free_bytes = 0;
+    block_hdr_t *cur = heap_head;
+    while (cur)
+    {
+        if (cur->free)
+            free_bytes += cur->size;
+        cur = cur->next;
+    }
+    return free_bytes;
 }
