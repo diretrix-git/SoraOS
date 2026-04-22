@@ -38,16 +38,16 @@ static void boot_screen(void) {
     delay(3000000);
 
     /* Draw centered ASCII art logo — "Vamos OS" */
-    vga_set_cursor(3, 17);
-    type_print(" __   __                              ___  ____  ", 0x0B, 200000);
-    vga_set_cursor(4, 17);
-    type_print(" \\ \\ / /__ _ _ __ ___   ___  ___    / _ \\/ ___| ", 0x0B, 200000);
-    vga_set_cursor(5, 17);
-    type_print("  \\ V / _` | '_ ` _ \\ / _ \\/ __|  | | | \\___ \\ ", 0x0B, 200000);
-    vga_set_cursor(6, 17);
-    type_print("   | | (_| | | | | | | (_) \\__ \\  | |_| |___) |", 0x0B, 200000);
-    vga_set_cursor(7, 17);
-    type_print("   |_|\\__,_|_| |_| |_|\\___/|___/   \\___/|____/ ", 0x0B, 200000);
+    vga_set_cursor(3, 15);
+    type_print("__     __                              ___  ____  ", 0x0B, 200000);
+    vga_set_cursor(4, 15);
+    type_print("\\ \\   / /__ _ _ __ ___   ___  ___    / _ \\/ ___| ", 0x0B, 200000);
+    vga_set_cursor(5, 15);
+    type_print(" \\ \\ / / _` | '_ ` _ \\ / _ \\/ __|  | | | \\___ \\ ", 0x0B, 200000);
+    vga_set_cursor(6, 15);
+    type_print("  \\ V / (_| | | | | | | (_) \\__ \\  | |_| |___) |", 0x0B, 200000);
+    vga_set_cursor(7, 15);
+    type_print("   \\_/ \\__,_|_| |_| |_|\\___/|___/   \\___/|____/ ", 0x0B, 200000);
 
     vga_set_cursor(9, 28);
     type_print("A Simple x86 Kernel", 0x07, 150000);
