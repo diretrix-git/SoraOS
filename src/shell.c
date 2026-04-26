@@ -52,8 +52,8 @@ static void cmd_help(int argc, char** argv) {
     vga_print_color("  ps                ", 0x0E); vga_print("List running processes\n");
     vga_print_color("  threads           ", 0x0E); vga_print("List kernel threads\n");
     vga_print_color("  meminfo           ", 0x0E); vga_print("Show memory usage\n");
-    vga_print_color("  spawn             ", 0x0E); vga_print("Start a new demo process\n");
-    vga_print_color("  thread            ", 0x0E); vga_print("Start a new kernel thread\n");
+    vga_print_color("  newprocess        ", 0x0E); vga_print("Create a new process (visible in ps/ls)\n");
+    vga_print_color("  thread            ", 0x0E); vga_print("Create a new kernel thread (visible in ls)\n");
     vga_print_color("  killprocess <pid> ", 0x0E); vga_print("Delete a process by PID\n");
     vga_print_color("  killthread <tid>  ", 0x0E); vga_print("Delete a thread by TID\n");
     vga_print_color("  reboot            ", 0x0E); vga_print("Reboot the system\n");
@@ -284,38 +284,45 @@ static void cmd_ls(int argc, char** argv) {
     vga_putchar('\n');
 }
 
-/* ── spawn: start a new demo process ────────────────────────────────────── */
-static uint32_t spawn_counter = 0;
+/* ── newprocess: create a real process visible in ps/ls ─────────────────── */
 
-static void spawned_task(void) {
-    /* Each spawned process prints its PID a few times then exits */
+/* A simple counter process — stays READY in the queue, visible in ps/ls */
+static void counter_process(void) {
     pcb_t* me = get_current_process();
     char buf[12];
     uint32_t pid = me ? me->pid : 0;
-    for (int i = 0; i < 5; i++) {
-        vga_print_color("\n[spawned process pid=", 0x0D);
-        sh_itoa(pid, buf); vga_print_color(buf, 0x0D);
-        vga_print_color(" tick ", 0x0D);
-        sh_itoa((uint32_t)i, buf); vga_print_color(buf, 0x0D);
-        vga_print_color("]", 0x0D);
-        /* busy wait */
+    uint32_t count = 0;
+
+    /* Run forever — stays in run queue, visible in ps and ls */
+    for (;;) {
+        count++;
+        /* Print every ~2 seconds worth of ticks */
+        if (count % 200 == 0) {
+            vga_print_color("\n[process pid=", 0x0D);
+            sh_itoa(pid, buf); vga_print_color(buf, 0x0D);
+            vga_print_color(" count=", 0x0D);
+            sh_itoa(count / 200, buf); vga_print_color(buf, 0x0D);
+            vga_print_color("]", 0x0D);
+        }
+        /* Yield by sleeping a bit */
         volatile uint32_t j;
-        for (j = 0; j < 5000000; j++) __asm__ volatile("nop");
+        for (j = 0; j < 100000; j++) __asm__ volatile("nop");
     }
-    process_exit();
 }
 
-static void cmd_spawn(int argc, char** argv) {
+static void cmd_newprocess(int argc, char** argv) {
     (void)argc; (void)argv;
-    spawn_counter++;
-    pcb_t* p = create_process(spawned_task, 1);
+    pcb_t* p = create_process(counter_process, 1);
     if (p) {
         char buf[12];
-        vga_print_color("Spawned process with PID ", 0x0A);
+        vga_print_color("Created process PID=", 0x0A);
         sh_itoa(p->pid, buf); vga_print_color(buf, 0x0A);
-        vga_putchar('\n');
+        vga_print_color(" — now visible in 'ps' and 'ls'\n", 0x07);
+        vga_print_color("Use 'killprocess ", 0x08);
+        sh_itoa(p->pid, buf); vga_print_color(buf, 0x08);
+        vga_print_color("' to remove it.\n", 0x08);
     } else {
-        vga_print_color("Failed to spawn process (out of memory)\n", 0x0C);
+        vga_print_color("Failed: out of memory or process pool full\n", 0x0C);
     }
 }
 
@@ -324,16 +331,21 @@ static void thread_task(void) {
     pcb_t* me = get_current_process();
     char buf[12];
     uint32_t pid = me ? me->pid : 0;
-    for (int i = 0; i < 3; i++) {
-        vga_print_color("\n[kernel thread parent=", 0x0E);
-        sh_itoa(pid, buf); vga_print_color(buf, 0x0E);
-        vga_print_color(" tick ", 0x0E);
-        sh_itoa((uint32_t)i, buf); vga_print_color(buf, 0x0E);
-        vga_print_color("]", 0x0E);
+    uint32_t count = 0;
+
+    /* Run forever — stays in run queue, visible in ls */
+    for (;;) {
+        count++;
+        if (count % 200 == 0) {
+            vga_print_color("\n[thread parent=", 0x0E);
+            sh_itoa(pid, buf); vga_print_color(buf, 0x0E);
+            vga_print_color(" count=", 0x0E);
+            sh_itoa(count / 200, buf); vga_print_color(buf, 0x0E);
+            vga_print_color("]", 0x0E);
+        }
         volatile uint32_t j;
-        for (j = 0; j < 5000000; j++) __asm__ volatile("nop");
+        for (j = 0; j < 100000; j++) __asm__ volatile("nop");
     }
-    thread_exit();
 }
 
 static void cmd_thread(int argc, char** argv) {
@@ -342,11 +354,14 @@ static void cmd_thread(int argc, char** argv) {
     tcb_t* t = create_thread(parent, thread_task);
     if (t) {
         char buf[12];
-        vga_print_color("Started thread with TID ", 0x0A);
+        vga_print_color("Created thread TID=", 0x0A);
         sh_itoa(t->tid, buf); vga_print_color(buf, 0x0A);
-        vga_putchar('\n');
+        vga_print_color(" — visible in 'ls'\n", 0x07);
+        vga_print_color("Use 'killthread ", 0x08);
+        sh_itoa(t->tid, buf); vga_print_color(buf, 0x08);
+        vga_print_color("' to remove it.\n", 0x08);
     } else {
-        vga_print_color("Failed to start thread (out of memory)\n", 0x0C);
+        vga_print_color("Failed: out of memory or thread pool full\n", 0x0C);
     }
 }
 
@@ -380,21 +395,21 @@ typedef struct {
 static shell_cmd_t command_table[] = {
     { "help",    cmd_help    },
     { "clear",   cmd_clear   },
-    { "echo",    cmd_echo    },
-    { "ls",      cmd_ls      },
-    { "time",    cmd_time    },
-    { "ps",      cmd_ps      },
-    { "threads", cmd_threads },
-    { "meminfo", cmd_meminfo },
-    { "spawn",        cmd_spawn       },
-    { "thread",       cmd_thread      },
-    { "killprocess",  cmd_killprocess },
-    { "killthread",   cmd_killthread  },
-    { "reboot",  cmd_reboot  },
-    { "exit",    cmd_exit    },
-    { "about",   cmd_about   },
-    { "banner",  cmd_banner  },
-    { NULL,      NULL        }
+    { "echo",    cmd_echo       },
+    { "ls",      cmd_ls         },
+    { "time",    cmd_time       },
+    { "ps",      cmd_ps         },
+    { "threads", cmd_threads    },
+    { "meminfo", cmd_meminfo    },
+    { "newprocess",  cmd_newprocess  },
+    { "thread",      cmd_thread      },
+    { "killprocess", cmd_killprocess },
+    { "killthread",  cmd_killthread  },
+    { "reboot",  cmd_reboot    },
+    { "exit",    cmd_exit       },
+    { "about",   cmd_about      },
+    { "banner",  cmd_banner     },
+    { NULL,      NULL           }
 };
 
 /* ── Parser & dispatcher ────────────────────────────────────────────────── */
