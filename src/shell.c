@@ -53,7 +53,6 @@ static void cmd_help(int argc, char** argv) {
     vga_print_color("  threads           ", 0x0E); vga_print("List kernel threads\n");
     vga_print_color("  meminfo           ", 0x0E); vga_print("Show memory usage\n");
     vga_print_color("  newprocess        ", 0x0E); vga_print("Create a new process (visible in ps/ls)\n");
-    vga_print_color("  thread            ", 0x0E); vga_print("Create a new kernel thread (visible in ls)\n");
     vga_print_color("  killprocess <pid> ", 0x0E); vga_print("Delete a process by PID\n");
     vga_print_color("  reboot            ", 0x0E); vga_print("Reboot the system\n");
     vga_print_color("  exit              ", 0x0E); vga_print("Shut down Vamos OS\n");
@@ -272,54 +271,29 @@ static void cmd_ls(int argc, char** argv) {
 
 /* ── newprocess: create a real process visible in ps/ls ─────────────────── */
 
-/* A background process — yields every tick so shell stays responsive */
+/* A background process — created BLOCKED so it shows in ps/ls
+ * but never steals CPU from the shell */
 static void counter_process(void) {
-    for (;;) {
-        /* Enable interrupts and halt — wakes on next timer tick (10ms)
-         * then immediately yields back via schedule() in timer_handler */
-        __asm__ volatile("sti; hlt");
-    }
+    /* This function body never actually runs since the process stays BLOCKED */
+    for (;;) __asm__ volatile("hlt");
 }
 
 static void cmd_newprocess(int argc, char** argv) {
     (void)argc; (void)argv;
     pcb_t* p = create_process(counter_process, 1);
     if (p) {
+        /* Mark BLOCKED immediately so scheduler never switches to it */
+        p->state = PROCESS_BLOCKED;
         char buf[12];
         vga_print_color("Process created  PID=", 0x0A);
         sh_itoa(p->pid, buf); vga_print_color(buf, 0x0A);
-        vga_print_color("  STATE=READY\n", 0x07);
+        vga_print_color("  STATE=BLOCKED\n", 0x07);
         vga_print_color("Run 'ps' or 'ls' to see it.  ", 0x08);
         vga_print_color("killprocess ", 0x08);
         sh_itoa(p->pid, buf); vga_print_color(buf, 0x08);
         vga_print_color(" to remove.\n", 0x08);
     } else {
         vga_print_color("Failed: out of memory or process pool full\n", 0x0C);
-    }
-}
-
-/* ── thread: start a new kernel thread ──────────────────────────────────── */
-static void thread_task(void) {
-    for (;;) {
-        __asm__ volatile("sti; hlt");
-    }
-}
-
-static void cmd_thread(int argc, char** argv) {
-    (void)argc; (void)argv;
-    pcb_t* parent = get_current_process();
-    tcb_t* t = create_thread(parent, thread_task);
-    if (t) {
-        char buf[12];
-        vga_print_color("Thread created  TID=", 0x0A);
-        sh_itoa(t->tid, buf); vga_print_color(buf, 0x0A);
-        vga_print_color("  STATE=READY\n", 0x07);
-        vga_print_color("Run 'ls' to see it.\n", 0x08);
-        vga_print_color("Run 'killthread ", 0x08);
-        sh_itoa(t->tid, buf); vga_print_color(buf, 0x08);
-        vga_print_color("' to remove it.\n", 0x08);
-    } else {
-        vga_print_color("Failed: out of memory or thread pool full\n", 0x0C);
     }
 }
 
@@ -360,7 +334,6 @@ static shell_cmd_t command_table[] = {
     { "threads", cmd_threads    },
     { "meminfo", cmd_meminfo    },
     { "newprocess",  cmd_newprocess  },
-    { "thread",      cmd_thread      },
     { "killprocess", cmd_killprocess },
     { "reboot",  cmd_reboot    },
     { "exit",    cmd_exit       },
