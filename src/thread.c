@@ -5,16 +5,23 @@
 #define MAX_THREADS  64
 #define STACK_SIZE   PAGE_SIZE
 
-static tcb_t   tcb_pool[MAX_THREADS];
+static tcb_t    tcb_pool[MAX_THREADS];
 static uint32_t next_tid = 0;
+static int      tcb_pool_initialized = 0;
+
+/* Initialize pool on first use */
+static void ensure_pool_init(void) {
+    if (tcb_pool_initialized) return;
+    for (int i = 0; i < MAX_THREADS; i++) {
+        tcb_pool[i].base.state = PROCESS_DEAD;
+        tcb_pool[i].base.pid   = 0;
+        tcb_pool[i].tid        = 0;
+    }
+    tcb_pool_initialized = 1;
+}
 
 static tcb_t* alloc_tcb(void) {
-    for (int i = 0; i < MAX_THREADS; i++) {
-        if (tcb_pool[i].base.state == PROCESS_DEAD &&
-            tcb_pool[i].tid == 0) {
-            return &tcb_pool[i];
-        }
-    }
+    ensure_pool_init();
     for (int i = 0; i < MAX_THREADS; i++) {
         if (tcb_pool[i].base.state == PROCESS_DEAD) {
             return &tcb_pool[i];
@@ -52,5 +59,24 @@ tcb_t* create_thread(pcb_t* parent, void (*entry_fn)(void)) {
 }
 
 void thread_exit(void) {
-    process_exit(); /* reuses scheduler's exit path */
+    process_exit(); /* reuses scheduler's exit path — frees stack, removes from queue */
+}
+
+/* Delete a thread by TID — callable from shell */
+int thread_delete(uint32_t tid) {
+    ensure_pool_init();
+    for (int i = 0; i < MAX_THREADS; i++) {
+        if (tcb_pool[i].tid == tid &&
+            tcb_pool[i].base.state != PROCESS_DEAD) {
+            tcb_pool[i].base.state = PROCESS_DEAD;
+            /* Remove from run queue */
+            extern void scheduler_dequeue(pcb_t* pcb);
+            scheduler_dequeue((pcb_t*)&tcb_pool[i]);
+            pmm_free_page((void*)(uintptr_t)tcb_pool[i].base.stack_base);
+            tcb_pool[i].base.stack_base = 0;
+            tcb_pool[i].tid = 0;
+            return 1; /* success */
+        }
+    }
+    return 0; /* not found */
 }

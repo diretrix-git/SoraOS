@@ -40,6 +40,9 @@ void   context_switch(pcb_t* old_pcb, pcb_t* new_pcb);
 /* Used by thread.c to add a TCB to the run queue */
 void   scheduler_enqueue(pcb_t* pcb);
 
+/* Used by thread_delete to remove a TCB from the run queue */
+void   scheduler_dequeue(pcb_t* pcb);
+
 /* Exposed for shell ps/threads commands */
 extern pcb_t* run_queue;
 

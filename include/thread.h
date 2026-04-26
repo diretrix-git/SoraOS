@@ -24,4 +24,7 @@ tcb_t* create_thread(pcb_t* parent, void (*entry_fn)(void));
 /* Mark current thread DEAD and reschedule */
 void   thread_exit(void);
 
+/* Delete a thread by TID from outside; returns 1 on success, 0 if not found */
+int    thread_delete(uint32_t tid);
+
 #endif /* THREAD_H */

@@ -54,6 +54,8 @@ static void cmd_help(int argc, char** argv) {
     vga_print_color("  meminfo           ", 0x0E); vga_print("Show memory usage\n");
     vga_print_color("  spawn             ", 0x0E); vga_print("Start a new demo process\n");
     vga_print_color("  thread            ", 0x0E); vga_print("Start a new kernel thread\n");
+    vga_print_color("  killprocess <pid> ", 0x0E); vga_print("Delete a process by PID\n");
+    vga_print_color("  killthread <tid>  ", 0x0E); vga_print("Delete a thread by TID\n");
     vga_print_color("  reboot            ", 0x0E); vga_print("Reboot the system\n");
     vga_print_color("  exit              ", 0x0E); vga_print("Shut down Vamos OS\n");
     vga_print_color("  about             ", 0x0E); vga_print("About Vamos OS\n");
@@ -157,6 +159,46 @@ static void cmd_meminfo(int argc, char** argv) {
     vga_print("  Used  : "); sh_itoa(used_p  * 4, buf); vga_print(buf); vga_print(" KB\n");
     vga_print_color("  Free  : ", 0x0A); sh_itoa(free_p * 4, buf);
     vga_print_color(buf, 0x0A); vga_print_color(" KB\n\n", 0x0A);
+}
+
+/* ── killprocess: delete a process by PID ───────────────────────────────── */
+static void cmd_killprocess(int argc, char** argv) {
+    if (argc < 2) { vga_print("Usage: killprocess <pid>\n"); return; }
+    uint32_t target = 0;
+    const char* s = argv[1];
+    while (*s >= '0' && *s <= '9') target = target * 10 + (uint32_t)(*s++ - '0');
+
+    pcb_t* p = run_queue;
+    while (p) {
+        if (p->pid == target) {
+            /* Mark dead — scheduler will skip it, process_exit cleans up */
+            p->state = PROCESS_DEAD;
+            vga_print_color("Process marked for deletion: pid=", 0x0A);
+            char buf[12]; sh_itoa(target, buf);
+            vga_print_color(buf, 0x0A); vga_putchar('\n');
+            return;
+        }
+        p = p->next;
+    }
+    vga_print("No such process: ");
+    char buf[12]; sh_itoa(target, buf); vga_print(buf); vga_putchar('\n');
+}
+
+/* ── killthread: delete a thread by TID ─────────────────────────────────── */
+static void cmd_killthread(int argc, char** argv) {
+    if (argc < 2) { vga_print("Usage: killthread <tid>\n"); return; }
+    uint32_t target = 0;
+    const char* s = argv[1];
+    while (*s >= '0' && *s <= '9') target = target * 10 + (uint32_t)(*s++ - '0');
+
+    if (thread_delete(target)) {
+        vga_print_color("Thread deleted: tid=", 0x0A);
+        char buf[12]; sh_itoa(target, buf);
+        vga_print_color(buf, 0x0A); vga_putchar('\n');
+    } else {
+        vga_print("No such thread: ");
+        char buf[12]; sh_itoa(target, buf); vga_print(buf); vga_putchar('\n');
+    }
 }
 
 static void cmd_reboot(int argc, char** argv) {
@@ -344,8 +386,10 @@ static shell_cmd_t command_table[] = {
     { "ps",      cmd_ps      },
     { "threads", cmd_threads },
     { "meminfo", cmd_meminfo },
-    { "spawn",   cmd_spawn   },
-    { "thread",  cmd_thread  },
+    { "spawn",        cmd_spawn       },
+    { "thread",       cmd_thread      },
+    { "killprocess",  cmd_killprocess },
+    { "killthread",   cmd_killthread  },
     { "reboot",  cmd_reboot  },
     { "exit",    cmd_exit    },
     { "about",   cmd_about   },

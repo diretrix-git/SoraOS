@@ -24,6 +24,7 @@ static void idle_task(void) {
 
 /* ── Forward declarations ───────────────────────────────────────────────── */
 static void enqueue(pcb_t* pcb);
+static void dequeue(pcb_t* pcb);
 
 /* ── Internal helpers ───────────────────────────────────────────────────── */
 
@@ -46,6 +47,11 @@ static pcb_t* alloc_pcb(void) {
 /* Public enqueue for threads (tcb_t cast to pcb_t*) */
 void scheduler_enqueue(pcb_t* pcb) {
     enqueue(pcb);
+}
+
+/* Public dequeue for thread_delete */
+void scheduler_dequeue(pcb_t* pcb) {
+    dequeue(pcb);
 }
 
 static void enqueue(pcb_t* pcb) {
